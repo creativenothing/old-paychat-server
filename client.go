@@ -52,6 +52,11 @@ type Client struct {
     // Client name
     name string
 
+    // Client termination time
+    timeEnd time.Time
+
+    // Client time remaining
+    timeLeft int64
 }
 
 // Associte message with client for sending the name
@@ -98,6 +103,10 @@ func (c *Client) handleReadMessage(message []byte){
 
     switch(msgJSON["type"].(string)){
         case "chat":
+            if(c.timeLeft <= 0){
+                break
+            }
+
             message := []byte(msgJSON["text"].(string))
             // Package websocket message and client message
             cmessage := ClientMessage{

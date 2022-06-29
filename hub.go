@@ -7,7 +7,7 @@ package main
 import (
     "encoding/json"
     "fmt"
-
+    "time"
 )
 
 // Hub maintains the set of active clients and broadcasts messages to the
@@ -36,10 +36,15 @@ func newHub() *Hub {
 }
 
 func (h *Hub) run() {
+    timeTicker := time.NewTicker(time.Second)
+
 	for {
 		select {
 		case client := <-h.register:
 			h.clients[client] = true
+            client.timeEnd = time.Now().Add(time.Second * 30)
+            h.handleTime()
+
 		case client := <-h.unregister:
 			if _, ok := h.clients[client]; ok {
 				delete(h.clients, client)
@@ -47,8 +52,36 @@ func (h *Hub) run() {
 			}
 		case cmessage := <-h.broadcast:
             h.handleBroadcast(*cmessage)
-		}
+
+        case <-timeTicker.C:
+            h.handleTime()
+
+        }
 	}
+}
+
+func (h *Hub) handleTime(){
+    for client := range h.clients {
+        timeLeftMillis := time.Until(client.timeEnd).Milliseconds()
+        if timeLeftMillis < 0 {
+            timeLeftMillis = 0
+        }
+
+        client.timeLeft = timeLeftMillis
+
+        msgJSON, _ := json.Marshal(
+            map[string]interface{}{
+                "time": timeLeftMillis,
+                "type": "time",
+            } )
+
+        select {
+        case client.send <- msgJSON:
+        default:
+            close(client.send)
+            delete(h.clients, client)
+        }
+    }
 }
 
 func (h *Hub) handleBroadcast(cmessage ClientMessage){
