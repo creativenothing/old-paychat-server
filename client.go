@@ -9,6 +9,7 @@ import (
 	"log"
 	"net/http"
 	"time"
+    "encoding/json"
 
 	"github.com/gorilla/websocket"
 )
@@ -47,6 +48,17 @@ type Client struct {
 
 	// Buffered channel of outbound messages.
 	send chan []byte
+
+    // Client name
+    name string
+
+}
+
+// Associte message with client for sending the name
+type ClientMessage struct{
+    c *Client
+
+    message []byte
 }
 
 // readPump pumps messages from the websocket connection to the hub.
@@ -62,7 +74,7 @@ func (c *Client) readPump() {
 	c.conn.SetReadLimit(maxMessageSize)
 	c.conn.SetReadDeadline(time.Now().Add(pongWait))
 	c.conn.SetPongHandler(func(string) error { c.conn.SetReadDeadline(time.Now().Add(pongWait)); return nil })
-	for {
+     for {
 		_, message, err := c.conn.ReadMessage()
 		if err != nil {
 			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
@@ -70,9 +82,33 @@ func (c *Client) readPump() {
 			}
 			break
 		}
-		message = bytes.TrimSpace(bytes.Replace(message, newline, space, -1))
-		c.hub.broadcast <- message
+
+        c.handleReadMessage(message)
+
 	}
+}
+
+func (c *Client) handleReadMessage(message []byte){
+    msgJSON := map[string]interface{}{}
+    err := json.Unmarshal(message,&msgJSON)
+
+    if(err != nil){
+        return
+    }
+
+    switch(msgJSON["type"].(string)){
+        case "chat":
+            message := []byte(msgJSON["text"].(string))
+            // Package websocket message and client message
+            cmessage := ClientMessage{
+                c: c,
+                message: bytes.TrimSpace(bytes.Replace(message, newline, space, -1)),
+            }
+
+            c.hub.broadcast <- &cmessage
+        break
+        default:
+    }
 }
 
 // writePump pumps messages from the hub to the websocket connection.
