@@ -85,8 +85,8 @@ func (h *Hub) handleBroadcast(cmessage ClientMessage){
 
         msgJSON := map[string]interface{}{
                 "text": string(message),
-                "name": name,
-                "id": id,
+                "username": name,
+                "userid": id,
                 "type": "chat",
             }
 

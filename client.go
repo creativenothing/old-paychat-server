@@ -33,7 +33,6 @@ var (
 	newline = []byte{'\n'}
 	space   = []byte{' '}
 
-    clientNo = 0
 )
 
 var upgrader = websocket.Upgrader{
@@ -133,7 +132,7 @@ func (c *Client) handleReadMessage(message []byte){
             if(!valid){
                 c.sendJSON(map[string]interface{}{
                     "type": "join",
-                    "status": false,
+                    "joined": false,
                 })
 
                 break
@@ -144,7 +143,7 @@ func (c *Client) handleReadMessage(message []byte){
             if (!validHub){
                 c.sendJSON(map[string]interface{}{
                     "type": "join",
-                    "status": false,
+                    "joined": false,
                 })
 
                 break
@@ -152,7 +151,7 @@ func (c *Client) handleReadMessage(message []byte){
             fmt.Println("c")
             c.sendJSON(map[string]interface{}{
                 "type": "join",
-                "status": true,
+                "joined": true,
             })
 
             fmt.Println("d")
@@ -161,10 +160,6 @@ func (c *Client) handleReadMessage(message []byte){
 	        c.hub.register <- c
         break
         case "connect":
-            clientNo++
-            c.id = clientNo
-            c.name = fmt.Sprintf("User %d",clientNo)
-
             c.sendJSON(map[string]interface{}{
                 "name": c.name,
                 "id": c.id,
@@ -223,13 +218,20 @@ func (c *Client) writePump() {
 
 // serveWs handles websocket requests from the peer.
 func serveWs(w http.ResponseWriter, r *http.Request) {
-	conn, err := upgrader.Upgrade(w, r, nil)
+	session, _ := store.Get(r, "cookie-name")
+
+    conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		log.Println(err)
 		return
 	}
 	client := &Client{hub: nil, conn: conn, send: make(chan []byte, 256)}
+    client.name = session.Values["username"].(string)
+    client.id = session.Values["userid"].(int)
 
+    client.sendJSON(map[string]interface{}{
+        "type": "open",
+    })
 	// Allow collection of memory referenced by the caller by doing all work in
 	// new goroutines.
 	go client.writePump()
