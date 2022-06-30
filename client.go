@@ -7,6 +7,7 @@ package main
 import (
 	"bytes"
 	"log"
+    "fmt"
 	"net/http"
 	"time"
     "encoding/json"
@@ -31,6 +32,8 @@ const (
 var (
 	newline = []byte{'\n'}
 	space   = []byte{' '}
+
+    clientNo = 0
 )
 
 var upgrader = websocket.Upgrader{
@@ -51,6 +54,9 @@ type Client struct {
 
     // Client name
     name string
+
+    // Client id
+    id int
 
     // Client termination time
     timeEnd time.Time
@@ -73,9 +79,12 @@ type ClientMessage struct{
 // reads from this goroutine.
 func (c *Client) readPump() {
 	defer func() {
-		c.hub.unregister <- c
+        if(c.hub != nil){
+		    c.hub.unregister <- c
+        }
 		c.conn.Close()
 	}()
+
 	c.conn.SetReadLimit(maxMessageSize)
 	c.conn.SetReadDeadline(time.Now().Add(pongWait))
 	c.conn.SetPongHandler(func(string) error { c.conn.SetReadDeadline(time.Now().Add(pongWait)); return nil })
@@ -89,11 +98,12 @@ func (c *Client) readPump() {
 		}
 
         c.handleReadMessage(message)
-
 	}
 }
 
 func (c *Client) handleReadMessage(message []byte){
+    fmt.Printf("%s\n",string(message))
+
     msgJSON := map[string]interface{}{}
     err := json.Unmarshal(message,&msgJSON)
 
@@ -103,7 +113,7 @@ func (c *Client) handleReadMessage(message []byte){
 
     switch(msgJSON["type"].(string)){
         case "chat":
-            if(c.timeLeft <= 0){
+            if(c.timeLeft <= 0 || c.hub == nil){
                 break
             }
 
@@ -116,6 +126,52 @@ func (c *Client) handleReadMessage(message []byte){
 
             c.hub.broadcast <- &cmessage
         break
+        case "join":
+
+            fmt.Println("a")
+            hubName, valid := msgJSON["room"]
+            if(!valid){
+                c.sendJSON(map[string]interface{}{
+                    "type": "join",
+                    "status": false,
+                })
+
+                break
+            }
+
+            fmt.Println("b")
+            hub, validHub := hubs[hubName.(string)]
+            if (!validHub){
+                c.sendJSON(map[string]interface{}{
+                    "type": "join",
+                    "status": false,
+                })
+
+                break
+            }
+            fmt.Println("c")
+            c.sendJSON(map[string]interface{}{
+                "type": "join",
+                "status": true,
+            })
+
+            fmt.Println("d")
+
+            c.hub = hub
+	        c.hub.register <- c
+        break
+        case "connect":
+            clientNo++
+            c.id = clientNo
+            c.name = fmt.Sprintf("User %d",clientNo)
+
+            c.sendJSON(map[string]interface{}{
+                "name": c.name,
+                "id": c.id,
+                "type": "connect",
+            })
+
+
         default:
     }
 }
@@ -150,7 +206,6 @@ func (c *Client) writePump() {
 			// Add queued chat messages to the current websocket message.
 			n := len(c.send)
 			for i := 0; i < n; i++ {
-				w.Write(newline)
 				w.Write(<-c.send)
 			}
 
@@ -167,17 +222,29 @@ func (c *Client) writePump() {
 }
 
 // serveWs handles websocket requests from the peer.
-func serveWs(hub *Hub, w http.ResponseWriter, r *http.Request) {
+func serveWs(w http.ResponseWriter, r *http.Request) {
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		log.Println(err)
 		return
 	}
-	client := &Client{hub: hub, conn: conn, send: make(chan []byte, 256)}
-	client.hub.register <- client
+	client := &Client{hub: nil, conn: conn, send: make(chan []byte, 256)}
 
 	// Allow collection of memory referenced by the caller by doing all work in
 	// new goroutines.
 	go client.writePump()
 	go client.readPump()
+}
+
+func (c *Client) sendJSON(jsonObj map[string]interface{}){
+    msgJSON, _ := json.Marshal(jsonObj)
+
+    select {
+    case c.send <- msgJSON:
+    default:
+        close(c.send)
+        if(c.hub != nil){
+            delete(c.hub.clients, c)
+        }
+    }
 }

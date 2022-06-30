@@ -10,6 +10,8 @@ import (
 	"net/http"
 )
 
+var hubs map[string]*Hub = make(map[string]*Hub)
+
 var addr = flag.String("addr", ":8080", "http service address")
 
 func serveHome(w http.ResponseWriter, r *http.Request) {
@@ -27,11 +29,13 @@ func serveHome(w http.ResponseWriter, r *http.Request) {
 
 func main() {
 	flag.Parse()
-	hub := newHub()
+    hub := newHub()
 	go hub.run()
+    hubs["main"] = hub
+
 	http.HandleFunc("/", serveHome)
 	http.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
-		serveWs(hub, w, r)
+		serveWs(w, r)
 	})
 	err := http.ListenAndServe(*addr, nil)
 	if err != nil {

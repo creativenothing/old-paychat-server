@@ -5,7 +5,6 @@
 package main
 
 import (
-    "encoding/json"
     "fmt"
     "time"
 )
@@ -43,9 +42,8 @@ func (h *Hub) run() {
 		case client := <-h.register:
 			h.clients[client] = true
             client.timeEnd = time.Now().Add(time.Second * 30)
-            h.handleTime()
 
-		case client := <-h.unregister:
+        case client := <-h.unregister:
 			if _, ok := h.clients[client]; ok {
 				delete(h.clients, client)
 				close(client.send)
@@ -69,40 +67,30 @@ func (h *Hub) handleTime(){
 
         client.timeLeft = timeLeftMillis
 
-        msgJSON, _ := json.Marshal(
+        client.sendJSON(
             map[string]interface{}{
                 "time": timeLeftMillis,
                 "type": "time",
             } )
 
-        select {
-        case client.send <- msgJSON:
-        default:
-            close(client.send)
-            delete(h.clients, client)
-        }
     }
 }
 
 func (h *Hub) handleBroadcast(cmessage ClientMessage){
         message:= cmessage.message
         name:= cmessage.c.name
+        id:= cmessage.c.id
 
         fmt.Printf("%s: %s\n", name,string(message))
 
-        msgJSON, _ := json.Marshal(
-            map[string]interface{}{
+        msgJSON := map[string]interface{}{
                 "text": string(message),
                 "name": name,
+                "id": id,
                 "type": "chat",
-            } )
+            }
 
         for client := range h.clients {
-            select {
-            case client.send <- msgJSON:
-            default:
-                close(client.send)
-                delete(h.clients, client)
-            }
+            client.sendJSON(msgJSON)
         }
 }
