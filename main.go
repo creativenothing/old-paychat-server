@@ -10,6 +10,7 @@ import (
     "fmt"
 	"net/http"
     "encoding/json"
+    "io/ioutil"
 
     "github.com/gorilla/sessions"
 
@@ -25,6 +26,8 @@ func corsHandle(w http.ResponseWriter, r *http.Request){
     w.Header().Set("Access-Control-Allow-Origin", r.Header.Get("Origin"))
     w.Header().Set("Access-Control-Allow-Methods", "POST, GET, OPTIONS, PUT, DELETE")
     w.Header().Set("Access-Control-Allow-Credentials", "true")
+    w.Header().Set("Access-Control-Allow-Headers", "Accept, Content-Type, Content-Length, Accept-Encoding, Authorization,X-CSRF-Token")
+    //w.Header().Set("Access-Control-Allow-Headers", "true")
 }
 // Check if user is authenticated
 func validateSession(w http.ResponseWriter, r *http.Request) bool{
@@ -32,11 +35,11 @@ func validateSession(w http.ResponseWriter, r *http.Request) bool{
     session, _ := store.Get(r, "cookie-name")
 
     if auth, ok := session.Values["authenticated"].(bool); !ok || !auth {
-        fmt.Printf("Validation failed %v\n", session )
+        fmt.Printf("Validation failed %v\n", session.Values )
         http.Error(w, "Forbidden", http.StatusForbidden)
         return false
     }
-    fmt.Printf("Validation succeeded %v\n", session )
+    fmt.Printf("Validation succeeded %v\n", session.Values )
     return true
 }
 
@@ -76,10 +79,35 @@ func secret(w http.ResponseWriter, r *http.Request) {
 }
 
 func login(w http.ResponseWriter, r *http.Request) {
-    fmt.Println("Login called")
 	corsHandle(w,r)
 
+    fmt.Printf("Login called %s\n",r.Method)
+    if(r.Method == "OPTIONS"){
+        return
+    }
+    if(r.Method != "POST"){
+        http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+    }
+
+    body, err:= ioutil.ReadAll(r.Body)
+    if err != nil{
+        fmt.Printf("read error: %s\n", err)
+        return
+    }
+    postJSON := map[string]interface{}{}
+    if err := json.Unmarshal(body, &postJSON) ; err != nil {
+        fmt.Printf("read error: %s\n", err)
+        return
+    }
+
+	fmt.Printf("%s\n",body)
+
+    username := postJSON["username"].(string)
+    fmt.Println(username)
+
     session, _ := store.Get(r, "cookie-name")
+    //password := r.FormValue("password")
 
     // Authentication goes here
     // ...
@@ -87,13 +115,23 @@ func login(w http.ResponseWriter, r *http.Request) {
     // Set user as authenticated
 
     clientNo++
-    userid:= clientNo
-    username:= fmt.Sprintf("User %d",clientNo)
+    user:= User{
+        username: username,
+        userid: clientNo,
+    }
 
-    session.Values["userid"]= userid
-    session.Values["username"] = username
+    user = user
+
+    userid:= clientNo
+    //username:= fmt.Sprintf("User %d",clientNo)
+
+
+    session.Values = map[interface{}]interface{}{}
+    writeUser(session.Values, user)
+    //session.Values["username"] = username
 
     session.Values["authenticated"] = true
+    fmt.Printf("%v\n", session.Values)
     session.Save(r, w)
 
     msgJSON, _ := json.Marshal(
@@ -123,10 +161,12 @@ func auth(w http.ResponseWriter, r *http.Request) {
     }
     session, _ := store.Get(r, "cookie-name")
 
+    user := readUser(session.Values)
+
     msgJSON, _ := json.Marshal(
         map[string]interface{}{
-            "id": session.Values["userid"].(int),
-            "username": session.Values["username"].(string),
+            "id": user.userid,
+            "username": user.username,
         })
 
     fmt.Println(string(msgJSON))
